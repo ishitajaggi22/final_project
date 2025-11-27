@@ -47,3 +47,5 @@ CREATE TABLE IF NOT EXISTS order_items (
 INSERT INTO books (title, author, price_buy, price_rent, stock) VALUES 
 ('The Great Gatsby', 'F. Scott Fitzgerald', 15.00, 5.00, 10),
 ('1984', 'George Orwell', 12.50, 4.00, 15);
+
+ALTER TABLE order_items ADD COLUMN is_returned BOOLEAN DEFAULT FALSE;
