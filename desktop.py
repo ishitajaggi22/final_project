@@ -5,6 +5,15 @@ import threading
 
 API_URL = "http://127.0.0.1:5000"
 
+# test credentials
+# customer
+# username: testuser
+# password: pass    
+# 
+# manager
+# username: testmanager  
+# password: pass
+
 class BookstoreApp:
     def __init__(self, root):
         self.root = root
@@ -52,6 +61,10 @@ class BookstoreApp:
         
         self.lbl_title = tk.Label(frame, text="Create Customer Account", font=("Arial", 16))
         self.lbl_title.pack(pady=10)
+
+        tk.Label(frame, text="Full Name").pack()
+        self.reg_name = tk.Entry(frame)
+        self.reg_name.pack()
         
         tk.Label(frame, text="Username").pack()
         self.reg_user = tk.Entry(frame)
@@ -79,7 +92,7 @@ class BookstoreApp:
         tk.Button(frame, text="Create Manager Account", command=self.prompt_manager_code, fg="red").pack()
 
     def prompt_manager_code(self):
-        code = simpledialog.askstring("Manager Access", "Enter Manager Creation Code:", show='*')
+        code = simpledialog.askstring("Manager Access", "Enter Manager Code:", show='*')
         if code:
             self.manager_secret = code
             self.target_role = "manager"
@@ -97,6 +110,7 @@ class BookstoreApp:
             "username": self.reg_user.get(),
             "password": self.reg_pass.get(),
             "email": self.reg_email.get(),
+            "full_name": self.reg_name.get(),
             "code": self.reg_code.get(),
             "role": self.target_role,
             "manager_secret": self.manager_secret
@@ -136,11 +150,16 @@ class BookstoreApp:
     # --- CUSTOMER ---
     def show_customer_dashboard(self):
         self.clear_screen()
+
+        display_name = self.session.get('full_name') or self.session.get('username') or "User"
+
         header = tk.Frame(self.root, bg="#eee", pady=10)
         header.pack(fill='x')
-        tk.Label(header, text=f"Welcome, {self.session.get('user_id')}", bg="#eee").pack(side='left', padx=10)
+        tk.Label(header, text=f"Welcome, {display_name}", bg="#eee").pack(side='left', padx=10)
+
         tk.Button(header, text="Logout", command=self.show_login_screen).pack(side='right', padx=10)
         tk.Button(header, text=f"Cart ({len(self.cart)})", command=self.show_cart).pack(side='right', padx=10)
+        tk.Button(header, text="Profile", command=self.show_profile_view, bg="#2196F3", fg="white").pack(side='right', padx=10)
 
         search_frame = tk.Frame(self.root, pady=10)
         search_frame.pack()
@@ -158,8 +177,248 @@ class BookstoreApp:
         btn_frame.pack()
         tk.Button(btn_frame, text="Add to Cart (Buy)", command=lambda: self.add_to_cart('buy')).pack(side='left', padx=10)
         tk.Button(btn_frame, text="Add to Cart (Rent)", command=lambda: self.add_to_cart('rent')).pack(side='left', padx=10)
+        tk.Button(btn_frame, text="View Ratings/Reviews", command=self.view_book_reviews, bg="#9C27B0", fg="white").pack(side='left', padx=10)
 
         self.search_books() # auto calls this function to show all books immediately after login
+
+    def view_book_reviews(self):
+        sel = self.tree.focus()
+        if not sel: 
+            messagebox.showinfo("Select", "Please select a book to view reviews.")
+            return
+        vals = self.tree.item(sel)['values']
+        book_id = vals[0]
+        book_title = vals[1]
+
+        # Fetch reviews
+        try:
+            resp = requests.get(f"{API_URL}/reviews/book/{book_id}")
+            if resp.status_code == 200:
+                data = resp.json()
+                reviews = data.get('reviews', [])
+                avg = data.get('average', 0)
+                
+                # Show Popup
+                top = tk.Toplevel(self.root)
+                top.title(f"Reviews for: {book_title}")
+                top.geometry("500x400")
+
+                tk.Label(top, text=f"Average Rating: {avg}/10", font=("Arial", 14, "bold"), pady=10).pack()
+                
+                # Scrollable list for reviews
+                container = tk.Frame(top)
+                container.pack(fill='both', expand=True, padx=10, pady=10)
+                
+                canvas = tk.Canvas(container)
+                scrollbar = tk.Scrollbar(container, orient="vertical", command=canvas.yview)
+                scrollable_frame = tk.Frame(canvas)
+
+                scrollable_frame.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
+                canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
+                canvas.configure(yscrollcommand=scrollbar.set)
+
+                canvas.pack(side="left", fill="both", expand=True)
+                scrollbar.pack(side="right", fill="y")
+
+                if not reviews:
+                    tk.Label(scrollable_frame, text="No reviews yet.").pack(pady=20)
+                
+                for r in reviews:
+                    f = tk.Frame(scrollable_frame, relief="groove", borderwidth=1, padx=5, pady=5)
+                    f.pack(fill='x', pady=5)
+                    tk.Label(f, text=f"Rating: {r['rating']}/10", font=("Arial", 10, "bold")).pack(anchor='w')
+                    tk.Label(f, text=r['review_text'], wraplength=400, justify="left").pack(anchor='w')
+                    tk.Label(f, text=f"Posted: {r['created_at']}", fg="gray", font=("Arial", 8)).pack(anchor='e')
+
+            else:
+                messagebox.showerror("Error", "Could not load reviews")
+        except Exception as e:
+            messagebox.showerror("Error", str(e))
+
+    def show_profile_view(self):
+        self.clear_screen()
+        
+        # --- Header ---
+        header = tk.Frame(self.root, bg="#eee", pady=10)
+        header.pack(fill='x')
+        tk.Label(header, text="My Profile", bg="#eee", font=("Arial", 14)).pack(side='left', padx=10)
+        tk.Button(header, text="Back to Dashboard", command=self.show_customer_dashboard).pack(side='right', padx=10)
+
+        # Use a Notebook (Tabs) to organize Profile vs Reviews
+        notebook = ttk.Notebook(self.root)
+        notebook.pack(expand=True, fill='both', padx=10, pady=10)
+
+        # === TAB 1: DETAILS & ORDERS ===
+        tab_main = tk.Frame(notebook)
+        notebook.add(tab_main, text="Details & Orders")
+
+        # 1. Update Details Section
+        edit_frame = tk.LabelFrame(tab_main, text="Update Details", padx=10, pady=10)
+        edit_frame.pack(fill="x", padx=10, pady=5)
+
+        tk.Label(edit_frame, text="Full Name:").grid(row=0, column=0, sticky='e')
+        entry_name = tk.Entry(edit_frame, width=30)
+        entry_name.grid(row=0, column=1, padx=5, pady=5)
+        entry_name.insert(0, self.session.get('full_name') or "")
+
+        tk.Label(edit_frame, text="Email:").grid(row=1, column=0, sticky='e')
+        entry_email = tk.Entry(edit_frame, width=30)
+        entry_email.grid(row=1, column=1, padx=5, pady=5)
+        entry_email.insert(0, self.session.get('email') or "")
+
+        def update_info():
+            new_name = entry_name.get()
+            new_email = entry_email.get()
+            def run_update():
+                try:
+                    resp = requests.post(f"{API_URL}/user/update", json={
+                        "user_id": self.session['user_id'], "full_name": new_name, "email": new_email
+                    })
+                    if resp.status_code == 200:
+                        self.session['full_name'] = new_name
+                        self.session['email'] = new_email
+                        self.root.after(0, lambda: messagebox.showinfo("Success", "Profile Updated"))
+                    else:
+                        self.root.after(0, lambda: messagebox.showerror("Error", resp.text))
+                except Exception as e:
+                    self.root.after(0, lambda: messagebox.showerror("Error", str(e)))
+            threading.Thread(target=run_update).start()
+
+        tk.Button(edit_frame, text="Save Changes", command=update_info, bg="#4CAF50", fg="white").grid(row=2, column=1, pady=10, sticky='w')
+
+        # 2. Order History Section
+        hist_frame = tk.LabelFrame(tab_main, text="Order History", padx=10, pady=10)
+        hist_frame.pack(fill="both", expand=True, padx=10, pady=5)
+
+        cols = ('Order ID', 'Date', 'Total Amount', 'Status')
+        hist_tree = ttk.Treeview(hist_frame, columns=cols, show='headings')
+        for col in cols: hist_tree.heading(col, text=col)
+        hist_tree.pack(fill='both', expand=True)
+
+        def load_history():
+            try:
+                user_id = self.session.get('user_id')
+                resp = requests.get(f"{API_URL}/user/orders/{user_id}")
+                if resp.status_code == 200:
+                    orders = resp.json()
+                    self.root.after(0, lambda: update_hist_tree(orders))
+            except: pass
+
+        def update_hist_tree(orders):
+            for row in hist_tree.get_children(): hist_tree.delete(row)
+            if orders:
+                for o in orders:
+                    hist_tree.insert("", "end", values=(o['id'], o['order_date'], f"${o['total_amount']}", o['payment_status']))
+
+        # === TAB 2: RATINGS & REVIEWS ===
+        tab_reviews = tk.Frame(notebook)
+        notebook.add(tab_reviews, text="Rate My Books")
+
+        lbl_instr = tk.Label(tab_reviews, text="Select a book from your library to rate/review it.", font=("Arial", 10, "italic"))
+        lbl_instr.pack(pady=5)
+
+        # Split view: Left side (List of books), Right side (Review Form)
+        paned = tk.PanedWindow(tab_reviews, orient=tk.HORIZONTAL)
+        paned.pack(fill='both', expand=True, padx=5, pady=5)
+
+        # Left: List of purchased books
+        frame_list = tk.Frame(paned)
+        paned.add(frame_list, width=300)
+        
+        cols_rev = ('Book Title', 'My Rating')
+        self.rev_tree = ttk.Treeview(frame_list, columns=cols_rev, show='headings')
+        self.rev_tree.heading('Book Title', text='Book Title')
+        self.rev_tree.heading('My Rating', text='My Rating')
+        self.rev_tree.column('My Rating', width=80)
+        self.rev_tree.pack(fill='both', expand=True)
+
+        # Right: Edit Form
+        frame_edit = tk.Frame(paned, padx=10, pady=10, bg="#f9f9f9")
+        paned.add(frame_edit)
+
+        tk.Label(frame_edit, text="Rate this book (0-10):", bg="#f9f9f9").pack(anchor='w')
+        self.combo_rating = ttk.Combobox(frame_edit, values=[str(i) for i in range(11)], state="readonly", width=5)
+        self.combo_rating.pack(anchor='w', pady=5)
+
+        tk.Label(frame_edit, text="Write a review (Anonymous):", bg="#f9f9f9").pack(anchor='w', pady=(10,0))
+        self.txt_review = tk.Text(frame_edit, height=10, width=40)
+        self.txt_review.pack(anchor='w', fill='both', expand=True)
+
+        self.btn_save_review = tk.Button(frame_edit, text="Submit Review", bg="#2196F3", fg="white", state="disabled")
+        self.btn_save_review.pack(pady=10, fill='x')
+
+        # Hidden var to store selected book id for the review
+        self.review_target_book_id = None 
+
+        def on_book_select(event):
+            sel = self.rev_tree.focus()
+            if not sel: return
+            item = self.rev_tree.item(sel)['values']
+            # Tree values: Title, Rating, (Hidden ID, Hidden Text) -> We need to store these better
+            # Actually, let's store the full data map locally to lookup
+            
+            # Find the full data object corresponding to selection
+            book_title = item[0]
+            # We need the ID. Let's retrieve it from the hidden storage or api data
+            selected_data = next((x for x in self.my_books_data if x['title'] == book_title), None)
+            
+            if selected_data:
+                self.review_target_book_id = selected_data['book_id']
+                
+                # Enable button
+                self.btn_save_review.config(state="normal", command=submit_review_action)
+                
+                # Fill Form
+                self.combo_rating.set(str(selected_data['rating']) if selected_data['rating'] is not None else "")
+                self.txt_review.delete("1.0", tk.END)
+                if selected_data['review_text']:
+                    self.txt_review.insert("1.0", selected_data['review_text'])
+        
+        self.rev_tree.bind("<<TreeviewSelect>>", on_book_select)
+
+        def load_reviewable_books():
+            try:
+                resp = requests.get(f"{API_URL}/reviews/user/{self.session['user_id']}")
+                if resp.status_code == 200:
+                    self.my_books_data = resp.json() # Store globally to access in click event
+                    self.root.after(0, update_rev_tree)
+            except: pass
+
+        def update_rev_tree():
+            for row in self.rev_tree.get_children(): self.rev_tree.delete(row)
+            for b in self.my_books_data:
+                rating_display = b['rating'] if b['rating'] is not None else "-"
+                self.rev_tree.insert("", "end", values=(b['title'], rating_display))
+
+        def submit_review_action():
+            rating = self.combo_rating.get()
+            review_text = self.txt_review.get("1.0", tk.END).strip()
+            
+            if not rating: 
+                messagebox.showerror("Error", "Please select a rating (0-10)")
+                return
+
+            payload = {
+                "user_id": self.session['user_id'],
+                "book_id": self.review_target_book_id,
+                "rating": int(rating),
+                "review_text": review_text
+            }
+            
+            def run_sub():
+                try:
+                    resp = requests.post(f"{API_URL}/reviews/submit", json=payload)
+                    if resp.status_code == 200:
+                        self.root.after(0, lambda: [messagebox.showinfo("Success", "Review Saved!"), load_reviewable_books()])
+                    else:
+                        self.root.after(0, lambda: messagebox.showerror("Error", resp.json().get('error')))
+                except Exception as e:
+                    self.root.after(0, lambda: messagebox.showerror("Error", str(e)))
+            threading.Thread(target=run_sub).start()
+
+        # Load data
+        threading.Thread(target=load_history).start()
+        threading.Thread(target=load_reviewable_books).start()
 
     def search_books(self):
         query = self.search_entry.get() if hasattr(self, 'search_entry') else ''

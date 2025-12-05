@@ -49,3 +49,17 @@ INSERT INTO books (title, author, price_buy, price_rent, stock) VALUES
 ('1984', 'George Orwell', 12.50, 4.00, 15);
 
 ALTER TABLE order_items ADD COLUMN is_returned BOOLEAN DEFAULT FALSE;
+ALTER TABLE users ADD COLUMN full_name VARCHAR(100);
+
+-- Reviews Table
+CREATE TABLE IF NOT EXISTS reviews (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    user_id INT NOT NULL,
+    book_id INT NOT NULL,
+    rating INT CHECK (rating >= 0 AND rating <= 10),
+    review_text TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id),
+    FOREIGN KEY (book_id) REFERENCES books(id),
+    UNIQUE KEY unique_user_book_review (user_id, book_id)
+);

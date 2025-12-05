@@ -19,7 +19,7 @@ db_config = {
 }
 
 # SECRET CODE required to create a manager account
-MANAGER_CREATION_SECRET = "ManagerCode2025" 
+MANAGER_CREATION_SECRET = "ManagerCode" 
 
 verification_storage = {}
 
@@ -93,15 +93,16 @@ def register():
     username = data.get('username')
     password = data.get('password')
     email = data.get('email')
+    full_name = data.get('full_name')
     role = data.get('role', 'customer') # Default to customer
     code = data.get('code')
-    manager_secret = data.get('manager_secret') # New field
+    manager_secret = data.get('manager_secret') 
 
-    # 1. Verify Email Code
+    # Verify Email Code
     if not code or verification_storage.get(email) != code:
         return jsonify({"error": "Invalid verification code"}), 400
 
-    # 2. Security Check for Manager
+    # Security Check for Manager
     if role == 'manager':
         if manager_secret != MANAGER_CREATION_SECRET:
              return jsonify({"error": "Invalid Manager Access Code"}), 403
@@ -114,8 +115,8 @@ def register():
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
-        cursor.execute("INSERT INTO users (username, password_hash, email, role) VALUES (%s, %s, %s, %s)",
-                       (username, hashed, email, role))
+        cursor.execute("INSERT INTO users (username, password_hash, email, full_name, role) VALUES (%s, %s, %s, %s, %s)",
+                       (username, hashed, email, full_name, role))
         conn.commit()
         del verification_storage[email]
         return jsonify({"message": "User registered successfully"}), 201
@@ -139,9 +140,50 @@ def login():
         return jsonify({
             "message": "Login successful",
             "user_id": user['id'],
-            "role": user['role']
+            "role": user['role'],
+            "full_name": user['full_name'], # "full_name": user.get('full_name', 'User'),
+            "email": user['email']
         }), 200
     return jsonify({"error": "Invalid credentials"}), 401
+
+@app.route('/user/update', methods=['POST'])
+def update_profile():
+    data = request.json
+    user_id = data.get('user_id')
+    new_name = data.get('full_name')
+    new_email = data.get('email')
+
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("UPDATE users SET full_name = %s, email = %s WHERE id = %s", 
+                       (new_name, new_email, user_id))
+        conn.commit()
+        return jsonify({"message": "Profile updated successfully"}), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 400
+    finally:
+        cursor.close()
+        conn.close()
+
+@app.route('/user/orders/<int:user_id>', methods=['GET'])
+def get_user_history(user_id):
+    conn = get_db_connection()
+    cursor = conn.cursor(dictionary=True)
+    try:
+        cursor.execute("""
+            SELECT id, total_amount, payment_status, order_date 
+            FROM orders 
+            WHERE user_id = %s 
+            ORDER BY order_date DESC
+        """, (user_id,))
+        orders = cursor.fetchall()
+        return jsonify(orders), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 400
+    finally:
+        cursor.close()
+        conn.close()
 
 # --- BOOK & INVENTORY ENDPOINTS ---
 
@@ -328,6 +370,92 @@ def update_payment():
         cursor.execute("UPDATE orders SET payment_status = %s WHERE id = %s", (status, order_id))
         conn.commit()
         return jsonify({"message": "Payment status updated"}), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 400
+    finally:
+        cursor.close()
+        conn.close()
+
+# --- REVIEW ENDPOINTS ---
+
+@app.route('/reviews/book/<int:book_id>', methods=['GET'])
+def get_book_reviews(book_id):
+    """ Get all anonymous reviews for a specific book """
+    conn = get_db_connection()
+    cursor = conn.cursor(dictionary=True)
+    try:
+        # We purposely do NOT select the username to keep it anonymous
+        cursor.execute("SELECT rating, review_text, created_at FROM reviews WHERE book_id = %s ORDER BY created_at DESC", (book_id,))
+        reviews = cursor.fetchall()
+        
+        # Calculate average rating
+        avg_rating = 0
+        if reviews:
+            total = sum(r['rating'] for r in reviews)
+            avg_rating = round(total / len(reviews), 1)
+            
+        return jsonify({"reviews": reviews, "average": avg_rating}), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 400
+    finally:
+        cursor.close()
+        conn.close()
+
+@app.route('/reviews/user/<int:user_id>', methods=['GET'])
+def get_user_reviewable_books(user_id):
+    """ Get list of books the user has bought/rented, plus their existing review if any """
+    conn = get_db_connection()
+    cursor = conn.cursor(dictionary=True)
+    try:
+        # 1. Find all distinct books currently in user's order history
+        # 2. Left join with reviews to see if they already wrote one
+        query = """
+            SELECT DISTINCT b.id as book_id, b.title, r.rating, r.review_text
+            FROM order_items oi
+            JOIN orders o ON oi.order_id = o.id
+            JOIN books b ON oi.book_id = b.id
+            LEFT JOIN reviews r ON (r.book_id = b.id AND r.user_id = %s)
+            WHERE o.user_id = %s
+        """
+        cursor.execute(query, (user_id, user_id))
+        items = cursor.fetchall()
+        return jsonify(items), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 400
+    finally:
+        cursor.close()
+        conn.close()
+
+@app.route('/reviews/submit', methods=['POST'])
+def submit_review():
+    data = request.json
+    user_id = data.get('user_id')
+    book_id = data.get('book_id')
+    rating = data.get('rating')
+    text = data.get('review_text')
+
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        # check if the user actually bought/rented the book
+        check_sql = """
+            SELECT oi.id FROM order_items oi
+            JOIN orders o ON oi.order_id = o.id
+            WHERE o.user_id = %s AND oi.book_id = %s
+        """
+        cursor.execute(check_sql, (user_id, book_id))
+        if not cursor.fetchone():
+            return jsonify({"error": "You can only review books you have ordered."}), 403
+
+        # update review
+        sql = """
+            INSERT INTO reviews (user_id, book_id, rating, review_text)
+            VALUES (%s, %s, %s, %s)
+            ON DUPLICATE KEY UPDATE rating=%s, review_text=%s
+        """
+        cursor.execute(sql, (user_id, book_id, rating, text, rating, text))
+        conn.commit()
+        return jsonify({"message": "Review saved successfully"}), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 400
     finally:
