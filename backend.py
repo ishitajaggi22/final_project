@@ -10,7 +10,7 @@ import string
 
 app = Flask(__name__)
 
-# --- CONFIGURATION ---
+# --- Configuration ---
 db_config = {
     'user': 'root',       
     'password': '121104', 
@@ -18,7 +18,7 @@ db_config = {
     'database': 'bookstore_db'
 }
 
-# SECRET CODE required to create a manager account
+# secret code required to create a manager account
 MANAGER_CREATION_SECRET = "ManagerCode" 
 
 verification_storage = {}
@@ -31,7 +31,7 @@ def get_db_connection():
         print(f"Error connecting to DB: {err}")
         return None
 
-# --- EMAIL HELPER (Kept from your original code) ---
+# --- Email Helper ---
 def send_email_receipt(user_email, order_id, total_amount, items):
     SENDER_EMAIL = "ishitajaggi22@gmail.com"
     APP_PASSWORD = "esnp hwtv vfli ozyk"
@@ -74,7 +74,7 @@ def send_verification_email(to_email, code):
     except:
         pass
 
-# --- AUTH ENDPOINTS ---
+# --- Auth Endpoints ---
 
 @app.route('/send-code', methods=['POST'])
 def send_code():
@@ -94,15 +94,13 @@ def register():
     password = data.get('password')
     email = data.get('email')
     full_name = data.get('full_name')
-    role = data.get('role', 'customer') # Default to customer
+    role = data.get('role', 'customer')
     code = data.get('code')
     manager_secret = data.get('manager_secret') 
 
-    # Verify Email Code
     if not code or verification_storage.get(email) != code:
         return jsonify({"error": "Invalid verification code"}), 400
 
-    # Security Check for Manager
     if role == 'manager':
         if manager_secret != MANAGER_CREATION_SECRET:
              return jsonify({"error": "Invalid Manager Access Code"}), 403
@@ -141,7 +139,7 @@ def login():
             "message": "Login successful",
             "user_id": user['id'],
             "role": user['role'],
-            "full_name": user['full_name'], # "full_name": user.get('full_name', 'User'),
+            "full_name": user['full_name'], 
             "email": user['email']
         }), 200
     return jsonify({"error": "Invalid credentials"}), 401
@@ -185,7 +183,7 @@ def get_user_history(user_id):
         cursor.close()
         conn.close()
 
-# --- BOOK & INVENTORY ENDPOINTS ---
+# --- Book & Inventory Endpoints ---
 
 @app.route('/books', methods=['GET'])
 def search_books():
@@ -202,7 +200,6 @@ def search_books():
 
 @app.route('/books', methods=['POST'])
 def add_book():
-    # Manager: Add new book
     data = request.json
     conn = get_db_connection()
     cursor = conn.cursor()
@@ -219,12 +216,10 @@ def add_book():
 
 @app.route('/books/update', methods=['POST'])
 def update_book():
-    # Manager: Update existing book (ALL fields)
     data = request.json
     conn = get_db_connection()
     cursor = conn.cursor()
     
-    # Updated SQL to include title and author
     sql = "UPDATE books SET title=%s, author=%s, price_buy=%s, price_rent=%s, stock=%s WHERE id=%s"
     
     try:
@@ -244,7 +239,7 @@ def update_book():
         cursor.close()
         conn.close()
 
-# --- ORDER ENDPOINTS ---
+# --- Order Endpoints ---
 
 @app.route('/order', methods=['POST'])
 def place_order():
@@ -258,20 +253,17 @@ def place_order():
     cursor = conn.cursor()
     
     try:
-        # 1. Check Stock
         for item in items:
             cursor.execute("SELECT stock, title FROM books WHERE id = %s", (item['book_id'],))
             result = cursor.fetchone()
             if not result or result[0] < 1:
                 raise Exception(f"Book '{result[1] if result else 'Unknown'}' is out of stock.")
 
-        # 2. Create Order
         total_amount = sum(float(item['price']) for item in items)
         cursor.execute("INSERT INTO orders (user_id, total_amount, payment_status) VALUES (%s, %s, 'Pending')", 
                        (user_id, total_amount))
         order_id = cursor.lastrowid
         
-        # 3. Items & Stock Decrement
         for item in items:
             cursor.execute(
                 "INSERT INTO order_items (order_id, book_id, type, price, is_returned) VALUES (%s, %s, %s, %s, FALSE)",
@@ -279,7 +271,6 @@ def place_order():
             )
             cursor.execute("UPDATE books SET stock = stock - 1 WHERE id = %s", (item['book_id'],))
         
-        # 4. Email
         cursor.execute("SELECT email FROM users WHERE id = %s", (user_id,))
         res = cursor.fetchone()
         if res: send_email_receipt(res[0], order_id, total_amount, items)
@@ -293,11 +284,10 @@ def place_order():
         cursor.close()
         conn.close()
 
-# --- MANAGER RETURN/RENTAL ENDPOINTS ---
+# --- Manager Return/Rental Endpoints ---
 
 @app.route('/admin/rentals', methods=['GET'])
 def get_rentals():
-    # Get all items that are RENTED and NOT RETURNED
     conn = get_db_connection()
     cursor = conn.cursor(dictionary=True)
     cursor.execute("""
@@ -321,16 +311,13 @@ def return_book():
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
-        # Get book_id to restore stock
         cursor.execute("SELECT book_id FROM order_items WHERE id = %s", (order_item_id,))
         res = cursor.fetchone()
         if not res: raise Exception("Item not found")
         book_id = res[0]
         
-        # Mark as returned
         cursor.execute("UPDATE order_items SET is_returned = TRUE WHERE id = %s", (order_item_id,))
         
-        # Increase Stock
         cursor.execute("UPDATE books SET stock = stock + 1 WHERE id = %s", (book_id,))
         
         conn.commit()
@@ -344,7 +331,6 @@ def return_book():
 
 @app.route('/admin/orders', methods=['GET'])
 def get_all_orders():
-    # Includes USER EMAIL now
     conn = get_db_connection()
     cursor = conn.cursor(dictionary=True)
     cursor.execute("""
@@ -362,7 +348,7 @@ def get_all_orders():
 def update_payment():
     data = request.json
     order_id = data.get('order_id')
-    status = data.get('status') # Should be 'Paid' or 'Pending'
+    status = data.get('status')
     
     conn = get_db_connection()
     cursor = conn.cursor()
@@ -376,7 +362,6 @@ def update_payment():
         cursor.close()
         conn.close()
 
-# --- REVIEW ENDPOINTS ---
 
 @app.route('/reviews/book/<int:book_id>', methods=['GET'])
 def get_book_reviews(book_id):
@@ -384,11 +369,9 @@ def get_book_reviews(book_id):
     conn = get_db_connection()
     cursor = conn.cursor(dictionary=True)
     try:
-        # We purposely do NOT select the username to keep it anonymous
         cursor.execute("SELECT rating, review_text, created_at FROM reviews WHERE book_id = %s ORDER BY created_at DESC", (book_id,))
         reviews = cursor.fetchall()
         
-        # Calculate average rating
         avg_rating = 0
         if reviews:
             total = sum(r['rating'] for r in reviews)
@@ -407,8 +390,6 @@ def get_user_reviewable_books(user_id):
     conn = get_db_connection()
     cursor = conn.cursor(dictionary=True)
     try:
-        # 1. Find all distinct books currently in user's order history
-        # 2. Left join with reviews to see if they already wrote one
         query = """
             SELECT DISTINCT b.id as book_id, b.title, r.rating, r.review_text
             FROM order_items oi
@@ -437,7 +418,6 @@ def submit_review():
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
-        # check if the user actually bought/rented the book
         check_sql = """
             SELECT oi.id FROM order_items oi
             JOIN orders o ON oi.order_id = o.id
@@ -447,7 +427,6 @@ def submit_review():
         if not cursor.fetchone():
             return jsonify({"error": "You can only review books you have ordered."}), 403
 
-        # update review
         sql = """
             INSERT INTO reviews (user_id, book_id, rating, review_text)
             VALUES (%s, %s, %s, %s)

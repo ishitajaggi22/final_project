@@ -190,7 +190,6 @@ class BookstoreApp:
         book_id = vals[0]
         book_title = vals[1]
 
-        # Fetch reviews
         try:
             resp = requests.get(f"{API_URL}/reviews/book/{book_id}")
             if resp.status_code == 200:
@@ -198,14 +197,12 @@ class BookstoreApp:
                 reviews = data.get('reviews', [])
                 avg = data.get('average', 0)
                 
-                # Show Popup
                 top = tk.Toplevel(self.root)
                 top.title(f"Reviews for: {book_title}")
                 top.geometry("500x400")
 
                 tk.Label(top, text=f"Average Rating: {avg}/10", font=("Arial", 14, "bold"), pady=10).pack()
                 
-                # Scrollable list for reviews
                 container = tk.Frame(top)
                 container.pack(fill='both', expand=True, padx=10, pady=10)
                 
@@ -244,15 +241,13 @@ class BookstoreApp:
         tk.Label(header, text="My Profile", bg="#eee", font=("Arial", 14)).pack(side='left', padx=10)
         tk.Button(header, text="Back to Dashboard", command=self.show_customer_dashboard).pack(side='right', padx=10)
 
-        # Use a Notebook (Tabs) to organize Profile vs Reviews
         notebook = ttk.Notebook(self.root)
         notebook.pack(expand=True, fill='both', padx=10, pady=10)
 
-        # === TAB 1: DETAILS & ORDERS ===
+        # details & orders tab
         tab_main = tk.Frame(notebook)
         notebook.add(tab_main, text="Details & Orders")
 
-        # 1. Update Details Section
         edit_frame = tk.LabelFrame(tab_main, text="Update Details", padx=10, pady=10)
         edit_frame.pack(fill="x", padx=10, pady=5)
 
@@ -286,7 +281,6 @@ class BookstoreApp:
 
         tk.Button(edit_frame, text="Save Changes", command=update_info, bg="#4CAF50", fg="white").grid(row=2, column=1, pady=10, sticky='w')
 
-        # 2. Order History Section
         hist_frame = tk.LabelFrame(tab_main, text="Order History", padx=10, pady=10)
         hist_frame.pack(fill="both", expand=True, padx=10, pady=5)
 
@@ -310,18 +304,16 @@ class BookstoreApp:
                 for o in orders:
                     hist_tree.insert("", "end", values=(o['id'], o['order_date'], f"${o['total_amount']}", o['payment_status']))
 
-        # === TAB 2: RATINGS & REVIEWS ===
+        # ratings & reviews tab
         tab_reviews = tk.Frame(notebook)
         notebook.add(tab_reviews, text="Rate My Books")
 
         lbl_instr = tk.Label(tab_reviews, text="Select a book from your library to rate/review it.", font=("Arial", 10, "italic"))
         lbl_instr.pack(pady=5)
 
-        # Split view: Left side (List of books), Right side (Review Form)
         paned = tk.PanedWindow(tab_reviews, orient=tk.HORIZONTAL)
         paned.pack(fill='both', expand=True, padx=5, pady=5)
 
-        # Left: List of purchased books
         frame_list = tk.Frame(paned)
         paned.add(frame_list, width=300)
         
@@ -332,7 +324,6 @@ class BookstoreApp:
         self.rev_tree.column('My Rating', width=80)
         self.rev_tree.pack(fill='both', expand=True)
 
-        # Right: Edit Form
         frame_edit = tk.Frame(paned, padx=10, pady=10, bg="#f9f9f9")
         paned.add(frame_edit)
 
@@ -347,28 +338,20 @@ class BookstoreApp:
         self.btn_save_review = tk.Button(frame_edit, text="Submit Review", bg="#2196F3", fg="white", state="disabled")
         self.btn_save_review.pack(pady=10, fill='x')
 
-        # Hidden var to store selected book id for the review
         self.review_target_book_id = None 
 
         def on_book_select(event):
             sel = self.rev_tree.focus()
             if not sel: return
             item = self.rev_tree.item(sel)['values']
-            # Tree values: Title, Rating, (Hidden ID, Hidden Text) -> We need to store these better
-            # Actually, let's store the full data map locally to lookup
-            
-            # Find the full data object corresponding to selection
             book_title = item[0]
-            # We need the ID. Let's retrieve it from the hidden storage or api data
             selected_data = next((x for x in self.my_books_data if x['title'] == book_title), None)
             
             if selected_data:
                 self.review_target_book_id = selected_data['book_id']
                 
-                # Enable button
                 self.btn_save_review.config(state="normal", command=submit_review_action)
                 
-                # Fill Form
                 self.combo_rating.set(str(selected_data['rating']) if selected_data['rating'] is not None else "")
                 self.txt_review.delete("1.0", tk.END)
                 if selected_data['review_text']:
@@ -380,7 +363,7 @@ class BookstoreApp:
             try:
                 resp = requests.get(f"{API_URL}/reviews/user/{self.session['user_id']}")
                 if resp.status_code == 200:
-                    self.my_books_data = resp.json() # Store globally to access in click event
+                    self.my_books_data = resp.json() 
                     self.root.after(0, update_rev_tree)
             except: pass
 
@@ -416,7 +399,6 @@ class BookstoreApp:
                     self.root.after(0, lambda: messagebox.showerror("Error", str(e)))
             threading.Thread(target=run_sub).start()
 
-        # Load data
         threading.Thread(target=load_history).start()
         threading.Thread(target=load_reviewable_books).start()
 
@@ -473,7 +455,7 @@ class BookstoreApp:
                 messagebox.showerror("Error", str(e))
         tk.Button(top, text="Checkout", command=checkout).pack()
 
-    # --- MANAGER DASHBOARD ---
+    # Manager Dashboard
     def show_manager_dashboard(self):
         self.clear_screen()
         header = tk.Frame(self.root, bg="#333", pady=10)
@@ -484,39 +466,34 @@ class BookstoreApp:
         notebook = ttk.Notebook(self.root)
         notebook.pack(expand=True, fill='both', padx=10, pady=10)
 
-        # TAB 1: Inventory
+        # inventory tab
         self.tab_inv = tk.Frame(notebook)
         notebook.add(self.tab_inv, text="Inventory")
         self.build_inventory_tab()
 
-        # TAB 2: Returns / Rentals
+        # returns / rentals tab
         self.tab_ret = tk.Frame(notebook)
         notebook.add(self.tab_ret, text="Rentals & Returns")
         self.build_returns_tab()
         
-        # TAB 3: Orders / Payment
+        # orders / payment tab
         self.tab_orders = tk.Frame(notebook)
         notebook.add(self.tab_orders, text="All Orders")
         self.build_orders_tab()
         
     def build_inventory_tab(self):
-        # Top controls
         tk.Button(self.tab_inv, text="Refresh List", command=self.refresh_mgr_books).pack(pady=5)
         
-        # Treeview
         cols = ('ID', 'Title', 'Author', 'Stock', 'Buy $', 'Rent $')
         self.mgr_tree = ttk.Treeview(self.tab_inv, columns=cols, show='headings', height=8)
         for col in cols: self.mgr_tree.heading(col, text=col)
         self.mgr_tree.pack(fill='both', expand=True)
         
-        # Bind click event to populate form
         self.mgr_tree.bind("<<TreeviewSelect>>", self.on_mgr_book_select) 
 
-        # Add/Edit Book Form
         frm = tk.LabelFrame(self.tab_inv, text="Book Details (Select book to Edit, or fill to Add)")
         frm.pack(fill='x', padx=10, pady=10)
         
-        # Use 'self.' so we can access these from other functions
         tk.Label(frm, text="Title:").grid(row=0, column=0)
         self.e_title = tk.Entry(frm); self.e_title.grid(row=0, column=1)
         
@@ -532,10 +509,8 @@ class BookstoreApp:
         tk.Label(frm, text="Rent Price:").grid(row=1, column=4)
         self.e_rent = tk.Entry(frm); self.e_rent.grid(row=1, column=5)
         
-        # ID Holder (Hidden)
         self.selected_book_id = None
 
-        # Buttons
         btn_frame = tk.Frame(frm)
         btn_frame.grid(row=2, columnspan=6, pady=10)
 
@@ -546,16 +521,13 @@ class BookstoreApp:
         self.refresh_mgr_books()
 
     def on_mgr_book_select(self, event):
-        # Auto-populate fields when a row is clicked
         sel = self.mgr_tree.focus()
         if not sel: return
         vals = self.mgr_tree.item(sel)['values']
         
-        # Store ID
         self.selected_book_id = vals[0]
 
-        # Clear and Insert
-        self.clear_form(clear_id=False) # Don't clear ID
+        self.clear_form(clear_id=False) 
         self.e_title.insert(0, vals[1])
         self.e_auth.insert(0, vals[2])
         self.e_stock.insert(0, vals[3])
@@ -565,7 +537,6 @@ class BookstoreApp:
     def clear_form(self, clear_id=True):
         if clear_id:
             self.selected_book_id = None
-            # Deselect tree
             if self.mgr_tree.selection():
                 self.mgr_tree.selection_remove(self.mgr_tree.selection())
 
@@ -609,7 +580,6 @@ class BookstoreApp:
     def run():
         requests.post(f"{API_URL}/books", json=data)
         self.root.after(0, self.refresh_mgr_books)
-        # Clear fields (must run on main thread)
         self.root.after(0, lambda: [
             e_title.delete(0, tk.END), e_auth.delete(0, tk.END),
             e_stock.delete(0, tk.END), e_buy.delete(0, tk.END),
@@ -669,7 +639,6 @@ class BookstoreApp:
     def build_orders_tab(self):
         tk.Button(self.tab_orders, text="Refresh Orders", command=self.load_orders).pack(pady=5)
         
-        # Cols: ID, User, Email, Total, Status, Date
         cols = ('ID', 'User', 'Email', 'Total', 'Status', 'Date')
         self.ord_tree = ttk.Treeview(self.tab_orders, columns=cols, show='headings')
         for col in cols: self.ord_tree.heading(col, text=col)
